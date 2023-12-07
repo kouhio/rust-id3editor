@@ -9,6 +9,148 @@ struct ID3TagInfo {
     track: u32, year: i32,
 }
 
+// Album info struct
+struct AlbumInfo {
+    artist: String, album: String,
+    year: i32,
+}
+
+// Track info struct
+struct TrackInfo {
+    title: String,
+    track: u32,
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+// AlbumInfo struct handlers
+//////////////////////////////////////////////////////////////////////////////////////
+impl AlbumInfo {
+    //////////////////////////////////////////////////////////////////////////////////////
+    // Parse album info from a given string
+    //
+    // Inputs
+    // path - path to string, or just directory name
+    //
+    // Return: parsed information struct from the string
+    //////////////////////////////////////////////////////////////////////////////////////
+    pub fn parse(path: &str) -> AlbumInfo {
+        let mut split = find_last_char(path.as_bytes(), b'/');
+        let mut filename: String = format!("{}", path);
+
+        // Check if path has folders, and get the deepest folder only
+        if split > 0 {
+            filename.replace_range(split..filename.len(), "");
+            split = find_last_char(filename.as_bytes(), b'/');
+            if split > 0 {
+                filename.replace_range(0..split+1, "");
+            }
+        }
+
+        let mut _artist: String = format!("{}", filename);
+        let mut _year:   String = format!("{}", filename);
+        let mut _album:  String = format!("{}", filename);
+        let pos = find_number(filename.as_bytes(), 0, 4);
+
+        // If the year was in the info, then get it as a middle point. Otherwise try to split with -
+        if pos > 0 {
+            _artist.replace_range(pos.._artist.len(), "");
+            _album.replace_range(0..pos+4, "");
+            _year.replace_range(pos+4.._year.len(), "");
+            _year.replace_range(0..pos, "");
+        } else {
+             let first = find_first_char(filename.as_bytes(), b'-');
+             let last  = find_last_char(filename.as_bytes(), b'-');
+
+            _artist.replace_range(first.._artist.len(), "");
+            _album.replace_range(0..last+1, "");
+            _year.replace_range(last.._year.len(), "");
+            _year.replace_range(0..first+1, "");
+        }
+
+        _artist = remove_whitespace(&_artist);
+        _album  = remove_whitespace(&_album);
+        _year   = remove_whitespace(&_year);
+
+        AlbumInfo { artist: _artist, year: _year.parse().unwrap(), album: _album }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+// TrackInfo struct handlers
+//////////////////////////////////////////////////////////////////////////////////////
+impl TrackInfo {
+    //////////////////////////////////////////////////////////////////////////////////////
+    // Parse track information from filename
+    //
+    // Inputs
+    // file - a filename or full path to a filename
+    //
+    // Return: Parsed track information struct
+    //////////////////////////////////////////////////////////////////////////////////////
+    pub fn parse(file: &str) -> TrackInfo {
+        let mut filename: String = format!("{}", file);
+        let mut pos = find_last_char(filename.as_bytes(), b'.');
+        let split = find_last_char(filename.as_bytes(), b'/');
+
+        // Remove file extension
+        filename.replace_range(pos..filename.len(), "");
+        if split > 0 {
+            filename.replace_range(0..split, "");
+        }
+
+        pos = find_number(filename.as_bytes(), 0, 2);
+
+        let mut _track: String = format!("{}", filename);
+        let mut _title: String = format!("{}", filename);
+
+
+        if pos > 0 {
+            _title.replace_range(0..pos+2, "");
+            _track.replace_range(pos+2.._track.len(), "");
+            _track.replace_range(0..pos, "");
+        } else {
+            pos = find_first_char(_track.as_bytes(), b'-');
+            _title.replace_range(0..pos+1, "");
+            _track.replace_range(pos.._track.len(), "");
+        }
+
+        _title = remove_whitespace(&_title);
+        _track = remove_whitespace(&_track);
+
+        TrackInfo { title: _title, track: _track.parse().unwrap() }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+// Find a number in a string
+//
+// Inputs
+// input     - input string
+// start_pos - possible start position for the string
+// size      - number of chars the wanted length of the number
+//
+// Return: Position where the seeked value was found, or 0 if not found
+//////////////////////////////////////////////////////////////////////////////////////
+fn find_number(input: &[u8], start_pos: usize, size: usize) -> usize {
+    let mut count: usize = 0;
+    let mut start: usize = 0;
+    let mut found: bool = false;
+    let mut total: usize = 0;
+
+    for i in start_pos..input.len() {
+        let compare = input[i] as char;
+        if compare.is_numeric() { count += 1
+        } else { total = count; count = 0; }
+
+        if count == 1 { start = i }
+
+        if total == size { found = true; break; }
+    }
+
+    if found { start
+    } else { 0 }
+}
+
 //////////////////////////////////////////////////////////////////////////////////////
 // Read wanted data from ID3 stream
 //
@@ -69,15 +211,15 @@ fn handle_tag_string(path: &str, src: &str) -> String {
 //
 // return: Number of found characters
 //////////////////////////////////////////////////////////////////////////////////////
-fn get_chars(input: &[u8], compare: u8) -> u32 {
-    let mut count: u32 = 0;
-
-    for i in 0..input.len() {
-        if input[i] == compare { count += 1; }
-    }
-
-    count
-}
+//fn get_chars(input: &[u8], compare: u8) -> u32 {
+//   let mut count: u32 = 0;
+//
+//   for i in 0..input.len() {
+//       if input[i] == compare { count += 1; }
+//   }
+//
+//   count
+//}
 
 //////////////////////////////////////////////////////////////////////////////////////
 // Find first position of the comparison character
@@ -132,12 +274,12 @@ fn remove_whitespace(input: &str) -> String {
     let comparison: &[u8] = input.as_bytes();
 
     for i in 0..comparison.len() {
-        if comparison[i] != b' ' { start = i; break; }
+        if comparison[i] != b' ' && comparison[i] != b'-' { start = i; break; }
     }
 
     let mut j = comparison.len() - 1;
     while j > 0 {
-        if comparison[j] != b' ' { end = j + 1; break; }
+        if comparison[j] != b' ' && comparison[j] != b'-' { end = j + 1; break; }
         j -= 1;
     }
 
@@ -173,7 +315,7 @@ impl ID3TagInfo {
     }
 
     //////////////////////////////////////////////////////////////////////////////////////
-    // Write tag data to audio file
+    // Parse tag data for the audio file
     //
     // Inputs
     // input - input string in format of "ARTIST - YEAR - ALBUM / TRACK - SONGNAME"
@@ -181,64 +323,21 @@ impl ID3TagInfo {
     // Return: ID3TagInfo Struct with parsed data
     //////////////////////////////////////////////////////////////////////////////////////
     pub fn parse(input: &str) -> ID3TagInfo {
-        let splitters = get_chars(input.as_bytes(), b'/');
         let mut _artist : String = format!("empty");
         let mut _title  : String = format!("empty");
         let mut _album  : String = format!("empty");
         let mut _year   : String = format!("0");
         let mut _track  : String = format!("0");
-        let mut filename : String = format!("{}", input);
-        let mut filepath : String = format!("{}", input);
-        let mut error: bool = false;
 
-        let mut pos = find_last_char(input.as_bytes(), b'/');
+        let pos = find_last_char(input.as_bytes(), b'/');
 
         if pos > 0 {
-            if splitters > 1 {
-                filename.replace_range(0..pos+1, "");
-                filepath.replace_range(pos..filepath.len(), "");
-                pos = find_last_char(filepath.as_bytes(), b'/');
-                filepath.replace_range(0..pos+1, "");
-            } else if splitters == 1 {
-                filename.replace_range(0..pos+1, "");
-                filepath.replace_range(pos..filepath.len(), "");
-            } else { error = true; }
-
-            if !error {
-                // Remove filetype from filename
-                pos = find_last_char(filename.as_bytes(), b'.');
-                filename.replace_range(pos..filename.len(), "");
-
-                // Get base inits
-                _artist = format!("{}", filepath);
-                _year   = format!("{}", filepath);
-                _album  = format!("{}", filepath);
-                _track  = format!("{}", filename);
-                _title  = format!("{}", filename);
-
-                // Get album splitters
-                let first = find_first_char(filepath.as_bytes(), b'-');
-                let last  = find_last_char(filepath.as_bytes(), b'-');
-
-                // Split track number and title
-                pos = find_last_char(_track.as_bytes(), b'-');
-                _title.replace_range(0..pos+1, "");
-                _track.replace_range(pos.._track.len(), "");
-                _title = remove_whitespace(&_title);
-                _track = remove_whitespace(&_track);
-
-                // Split band, year and album
-                _artist.replace_range(first.._artist.len(), "");
-                _album.replace_range(0..last+1, "");
-                _year.replace_range(last.._year.len(), "");
-                _year.replace_range(0..first+1, "");
-                _artist = remove_whitespace(&_artist);
-                _album  = remove_whitespace(&_album);
-                _year   = remove_whitespace(&_year);
-            }
+            let atag: AlbumInfo = AlbumInfo::parse(input);
+            let ttag: TrackInfo = TrackInfo::parse(input);
+            ID3TagInfo { artist: atag.artist, title: ttag.title, album: atag.album, track: ttag.track, year: atag.year }
+        } else {
+            ID3TagInfo { artist: _artist, title: _title, album: _album, track: _track.parse().unwrap(), year: _year.parse().unwrap() }
         }
-
-        ID3TagInfo { artist: _artist, title: _title, album: _album, track: _track.parse().unwrap(), year: _year.parse().unwrap() }
     }
 }
 
