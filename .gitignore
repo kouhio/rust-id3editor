@@ -1,0 +1,4 @@
+lock
+*.lock
+*.swp
+/target
