@@ -49,27 +49,35 @@ impl AlbumInfo {
         let mut _artist: String = format!("{}", filename);
         let mut _year:   String = format!("{}", filename);
         let mut _album:  String = format!("{}", filename);
-        let pos = find_number(filename.as_bytes(), 0, 4);
 
-        // If the year was in the info, then get it as a middle point. Otherwise try to split with -
-        if pos > 0 {
-            _artist.replace_range(pos.._artist.len(), "");
-            _album.replace_range(0..pos+4, "");
-            _year.replace_range(pos+4.._year.len(), "");
-            _year.replace_range(0..pos, "");
+        if filename.len() > 10 {
+
+            let pos = find_number(filename.as_bytes(), 0, 4);
+
+            // If the year was in the info, then get it as a middle point. Otherwise try to split with -
+            if pos > 0 {
+                _artist.replace_range(pos.._artist.len(), "");
+                _album.replace_range(0..pos+4, "");
+                _year.replace_range(pos+4.._year.len(), "");
+                _year.replace_range(0..pos, "");
+            } else {
+                 let first = find_first_char(filename.as_bytes(), b'-');
+                 let last  = find_last_char(filename.as_bytes(), b'-');
+
+                _artist.replace_range(first.._artist.len(), "");
+                _album.replace_range(0..last+1, "");
+                _year.replace_range(last.._year.len(), "");
+                _year.replace_range(0..first+1, "");
+            }
+
+            _artist = remove_whitespace(&_artist);
+            _album  = remove_whitespace(&_album);
+            _year   = remove_whitespace(&_year);
         } else {
-             let first = find_first_char(filename.as_bytes(), b'-');
-             let last  = find_last_char(filename.as_bytes(), b'-');
-
-            _artist.replace_range(first.._artist.len(), "");
-            _album.replace_range(0..last+1, "");
-            _year.replace_range(last.._year.len(), "");
-            _year.replace_range(0..first+1, "");
+            _artist = format!("empty");
+            _year   = format!("0");
+            _album  = format!("empty");
         }
-
-        _artist = remove_whitespace(&_artist);
-        _album  = remove_whitespace(&_album);
-        _year   = remove_whitespace(&_year);
 
         AlbumInfo { artist: _artist, year: _year.parse().unwrap(), album: _album }
     }
@@ -98,22 +106,28 @@ impl TrackInfo {
             filename.replace_range(0..split, "");
         }
 
-        pos = find_number(filename.as_bytes(), 0, 2);
         let mut _track: String = format!("{}", filename);
         let mut _title: String = format!("{}", filename);
 
-        if pos > 0 {
-            _title.replace_range(0..pos+2, "");
-            _track.replace_range(pos+2.._track.len(), "");
-            _track.replace_range(0..pos, "");
-        } else {
-            pos = find_first_char(_track.as_bytes(), b'-');
-            _title.replace_range(0..pos+1, "");
-            _track.replace_range(pos.._track.len(), "");
-        }
+        if filename.len() > 5 {
+            pos = find_number(filename.as_bytes(), 0, 2);
 
-        _title = remove_whitespace(&_title);
-        _track = remove_whitespace(&_track);
+            if pos > 0 {
+                _title.replace_range(0..pos+2, "");
+                _track.replace_range(pos+2.._track.len(), "");
+                _track.replace_range(0..pos, "");
+            } else {
+                pos = find_first_char(_track.as_bytes(), b'-');
+                _title.replace_range(0..pos+1, "");
+                _track.replace_range(pos.._track.len(), "");
+            }
+
+            _title = remove_whitespace(&_title);
+            _track = remove_whitespace(&_track);
+        } else {
+            _track = format!("0");
+            _title = format!("empty");
+        }
 
         TrackInfo { title: _title, track: _track.parse().unwrap() }
     }
@@ -254,12 +268,12 @@ fn remove_whitespace(input: &str) -> String {
     let comparison: &[u8] = input.as_bytes();
 
     for i in 0..comparison.len() {
-        if comparison[i] != b' ' && comparison[i] != b'-' { start = i; break; }
+        if comparison[i] != b' ' && comparison[i] != b'-' && comparison[i] != b'_' && comparison[i] != b'\n' && comparison[i] != b'\t' { start = i; break; }
     }
 
     let mut j = comparison.len() - 1;
     while j > 0 {
-        if comparison[j] != b' ' && comparison[j] != b'-' { end = j + 1; break; }
+        if comparison[j] != b' ' && comparison[j] != b'-' && comparison[j] != b'_' && comparison[j] != b'\n' && comparison[j] != b'\t' { end = j + 1; break; }
         j -= 1;
     }
 
@@ -344,7 +358,7 @@ fn print_tag(info: &ID3TagInfo) {
 //////////////////////////////////////////////////////////////////////////////////////
 fn remove_tag(path: &str, info: &ID3TagInfo) {
     if is_empty(info) {
-        println!("No need to remove, item is already empty!");
+        println!("No need to remove, item is already empty! '{}'", path);
     } else {
         let do_steps = || -> Result<(), Box<dyn std::error::Error>> {
             Tag::remove_from_path(path)?;
@@ -448,7 +462,7 @@ fn write_tags(path: &str, tag: &ID3TagInfo, orig: &ID3TagInfo) {
                 println!("Updated ID3 tags to '{}' as artist:'{}' year::'{}' album::'{}' track:'{}' title:'{}'", path, tag.artist, tag.year, tag.album, tag.track, tag.title);
             }
         } else {
-            println!("No need to update, as the information already matches!");
+            println!("No need to update, as the information already matches! '{}'", path);
         }
     } else {
         println!("Some input values are incorrect: artist:'{}' title:'{}' album:'{}' track:'{}' year:'{}'. ABORTING!", tag.artist, tag.title, tag.album, tag.track, tag.year);
