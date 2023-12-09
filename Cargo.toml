@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 id3 = { git = "https://github.com/polyfloyd/rust-id3" }
+chrono = "0.4"

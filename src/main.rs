@@ -1,7 +1,7 @@
 use id3::{Tag, TagLike, Version};
-//use id3::{Tag, TagLike};
 use std::env;
 use std::fs;
+use chrono::Datelike;
 
 // Basic ID3 tag information
 struct ID3TagInfo {
@@ -49,18 +49,19 @@ impl AlbumInfo {
         let mut _artist: String = format!("{}", filename);
         let mut _year:   String = format!("{}", filename);
         let mut _album:  String = format!("{}", filename);
+        let current_date = chrono::Utc::now();
+        let minuses = get_char_count(filename.as_bytes(), b'-');
 
-        if filename.len() > 10 {
+        if filename.len() > 10 || minuses > 0 {
+            let pos2 = find_number(filename.as_bytes(), 0, 4);
+            let pos = pos2 as usize;
 
-            let pos = find_number(filename.as_bytes(), 0, 4);
-
-            // If the year was in the info, then get it as a middle point. Otherwise try to split with -
-            if pos > 0 {
+            if pos2 >= 0 {                                                  // If the year was in the info, then get it as a middle point. Otherwise try to split with -
                 _artist.replace_range(pos.._artist.len(), "");
                 _album.replace_range(0..pos+4, "");
                 _year.replace_range(pos+4.._year.len(), "");
                 _year.replace_range(0..pos, "");
-            } else {
+            } else if minuses > 1 {                                         // If there are more than one minus, there's probably a year
                  let first = find_first_char(filename.as_bytes(), b'-');
                  let last  = find_last_char(filename.as_bytes(), b'-');
 
@@ -68,16 +69,21 @@ impl AlbumInfo {
                 _album.replace_range(0..last+1, "");
                 _year.replace_range(last.._year.len(), "");
                 _year.replace_range(0..first+1, "");
+            } else if minuses == 1 {                                        // Only one minus, only artist and album name
+                 let first = find_first_char(filename.as_bytes(), b'-');
+                _year   = format!("{}", current_date.year());
+                _album.replace_range(0..first+1, "");
+                _artist.replace_range(first.._artist.len(), "");
+            } else {                                                        // Only artists name is found
+                _album  = format!("empty");
             }
-
-            _artist = remove_whitespace(&_artist);
-            _album  = remove_whitespace(&_album);
-            _year   = remove_whitespace(&_year);
         } else {
-            _artist = format!("empty");
-            _year   = format!("0");
             _album  = format!("empty");
         }
+
+        _artist = remove_whitespace(&_artist);
+        _album  = remove_whitespace(&_album);
+        _year   = verify_number(&_year, 1900, current_date.year());
 
         AlbumInfo { artist: _artist, year: _year.parse().unwrap(), album: _album }
     }
@@ -109,25 +115,27 @@ impl TrackInfo {
         let mut _track: String = format!("{}", filename);
         let mut _title: String = format!("{}", filename);
 
+        // Filename probably as a number in it
         if filename.len() > 5 {
-            pos = find_number(filename.as_bytes(), 0, 2);
+            let pos2 = find_number(filename.as_bytes(), 0, 2);
+            pos = pos2 as usize;
 
-            if pos > 0 {
+            if pos2 >= 0 {                                          // Separate number and track
                 _title.replace_range(0..pos+2, "");
                 _track.replace_range(pos+2.._track.len(), "");
                 _track.replace_range(0..pos, "");
-            } else {
+            } else {                                                // Se if there's a minus, and try to separate by that
                 pos = find_first_char(_track.as_bytes(), b'-');
-                _title.replace_range(0..pos+1, "");
-                _track.replace_range(pos.._track.len(), "");
-            }
 
-            _title = remove_whitespace(&_title);
-            _track = remove_whitespace(&_track);
-        } else {
-            _track = format!("0");
-            _title = format!("empty");
+                if pos > 0 {
+                    _title.replace_range(0..pos+1, "");
+                    _track.replace_range(pos.._track.len(), "");
+                }
+            }
         }
+
+        _title = remove_whitespace(&_title);
+        _track = verify_number(&_track, 1, 99);
 
         TrackInfo { title: _title, track: _track.parse().unwrap() }
     }
@@ -141,9 +149,9 @@ impl TrackInfo {
 // start_pos - possible start position for the string
 // size      - number of chars the wanted length of the number
 //
-// Return: Position where the seeked value was found, or 0 if not found
+// Return: Position where the seeked value was found, or -1 if not found
 //////////////////////////////////////////////////////////////////////////////////////
-fn find_number(input: &[u8], start_pos: usize, size: usize) -> usize {
+fn find_number(input: &[u8], start_pos: usize, size: usize) -> i32 {
     let mut count: usize = 0;
     let mut start: usize = 0;
     let mut found: bool = false;
@@ -160,8 +168,31 @@ fn find_number(input: &[u8], start_pos: usize, size: usize) -> usize {
         if total == size { found = true; break; }
     }
 
-    if found { start
-    } else { 0 }
+    if found { start as i32
+    } else { -1 }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+// Clean and verify number string
+//
+// Inputs
+// input    - input value as string
+// min      - minimum accepted value
+// max      - maximum accepted value
+//
+// Return: 0 if not a number, not within bounds, or the value as String, if OK
+//////////////////////////////////////////////////////////////////////////////////////
+fn verify_number(input: &str, min: i32, max: i32) -> String  {
+    let mut handler: String = remove_whitespace(&input);
+
+    if ! handler.parse::<i32>().is_ok() { return format!("0") }
+
+    let value: i32 = handler.parse().unwrap();
+
+    if value < min || value > max { handler = format!("0");
+    } else {                        handler = format!("{}", value); }
+
+    handler
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -198,21 +229,25 @@ fn handle_tag_string(path: &str, src: &str) -> String {
     } else if src == "track" {
         value = true;
         input = format!("{:?}", tag.track());
-    } else { input = format!("null"); }
+    } else { input = format!("empty"); }
 
-    if input == "null" {
-        if value { input = format!("0"); }
-    } else {
-        if value {
+    if value {
+        if input.len() > 6 {
             input.replace_range(0..5, "");
             input.truncate(input.len() -1);
         } else {
+            input = format!("empty");
+        }
+    } else {
+        if input.len() > 8 {
             input.replace_range(0..6, "");
             input.truncate(input.len() -2);
+        } else {
+            input = format!("empty");
         }
     }
 
-    input
+    remove_whitespace(&input)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -254,6 +289,25 @@ fn find_last_char(input: &[u8], compare: u8) -> usize {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
+// Get nmber of given characters in a string
+//
+// Inputs
+// input    - source string
+// compare  - comparison character
+//
+// Return: Number of items found in string
+//////////////////////////////////////////////////////////////////////////////////////
+fn get_char_count(input: &[u8], compare: u8) -> usize {
+    let mut count: usize = 0;
+
+    for i in 0..input.len() {
+        if input[i] == compare { count += 1; }
+    }
+
+    count
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
 // Remove whitespace from string with loops
 //
 // Inputs
@@ -268,12 +322,12 @@ fn remove_whitespace(input: &str) -> String {
     let comparison: &[u8] = input.as_bytes();
 
     for i in 0..comparison.len() {
-        if comparison[i] != b' ' && comparison[i] != b'-' && comparison[i] != b'_' && comparison[i] != b'\n' && comparison[i] != b'\t' { start = i; break; }
+        if comparison[i] != b' ' && comparison[i] != b'-' && comparison[i] != b'_' && comparison[i] != b'\n' && comparison[i] != b'\t' && comparison[i] != b'/' { start = i; break; }
     }
 
     let mut j = comparison.len() - 1;
     while j > 0 {
-        if comparison[j] != b' ' && comparison[j] != b'-' && comparison[j] != b'_' && comparison[j] != b'\n' && comparison[j] != b'\t' { end = j + 1; break; }
+        if comparison[j] != b' ' && comparison[j] != b'-' && comparison[j] != b'_' && comparison[j] != b'\n' && comparison[j] != b'\t' && comparison[j] != b'/' { end = j + 1; break; }
         j -= 1;
     }
 
@@ -302,8 +356,11 @@ impl ID3TagInfo {
         let mut _year   : String = handle_tag_string(path, "year");
         let mut _track  : String = handle_tag_string(path, "track");
 
-        if _year  == "empty" { _year = format!("0") };
-        if _track == "empty" { _track = format!("0") };
+        if _year  == "empty" { _year = format!("0")
+        } else if ! _year.parse::<i32>().is_ok() { _year = format!("0"); }
+
+        if _track == "empty" { _track = format!("0")
+        } else if ! _track.parse::<i32>().is_ok() { _track = format!("0"); }
 
         ID3TagInfo { artist: _artist, title: _title, album: _album, track: _track.parse().unwrap(), year: _year.parse().unwrap() }
     }
@@ -355,10 +412,11 @@ fn print_tag(info: &ID3TagInfo) {
 //
 // Inputs
 // path - Path to audio file
+// v    - verbose status
 //////////////////////////////////////////////////////////////////////////////////////
-fn remove_tag(path: &str, info: &ID3TagInfo, v: bool) {
+fn remove_tag(path: &str, info: &ID3TagInfo, v: &str) {
     if is_empty(info) {
-        if !v { println!("No need to remove, item is already empty! '{}'", path); }
+        if v == "loud" || v == "verbose" { println!("No need to remove, item is already empty! '{}'", path); }
     } else {
         let do_steps = || -> Result<(), Box<dyn std::error::Error>> {
             Tag::remove_from_path(path)?;
@@ -366,9 +424,9 @@ fn remove_tag(path: &str, info: &ID3TagInfo, v: bool) {
         };
 
         if let Err(_err) = do_steps() {
-            if !v {println!("No tags found in '{}'", path); }
+            if v == "loud" { println!("No tags found in '{}'", path); }
         } else {
-            println!("Removed tags from '{}'", path);
+            if v != "silent" && v != "entry" { println!("Removed tags from '{}'", path); }
         }
     }
 }
@@ -382,7 +440,7 @@ fn remove_tag(path: &str, info: &ID3TagInfo, v: bool) {
 //
 // Return: Number of items that match
 //////////////////////////////////////////////////////////////////////////////////////
-fn compare(tag: &ID3TagInfo, orig: &ID3TagInfo) -> u8 {
+fn compare_tags(tag: &ID3TagInfo, orig: &ID3TagInfo) -> u8 {
     let mut count: u8 = 0;
 
     if tag.artist == orig.artist { count += 1; }
@@ -403,13 +461,30 @@ fn compare(tag: &ID3TagInfo, orig: &ID3TagInfo) -> u8 {
 // Return: true if any of the items are incorrect
 //////////////////////////////////////////////////////////////////////////////////////
 fn is_empty(tag: &ID3TagInfo) -> bool {
-    let mut error: bool = false;
+    let mut error: i16 = 0;
 
-    if        tag.artist == "empty" { error = true;
-    } else if tag.title  == "empty" { error = true;
-    } else if tag.album  == "empty" { error = true;
-    } else if tag.track  <  1       { error = true;
-    } else if tag.year   <  1900    { error = true;
+    if        tag.artist == "empty" { error += 1;
+    } else if tag.title  == "empty" { error += 1;
+    } else if tag.album  == "empty" { error += 1;
+    } else if tag.track  <  1       { error += 1;
+    } else if tag.year   <  1900    { error += 1;
+    }
+
+    if error > 4 { true
+    } else { false }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+// Get number of empty items
+//////////////////////////////////////////////////////////////////////////////////////
+fn _empty_count(tag: &ID3TagInfo) -> i16 {
+    let mut error: i16 = 0;
+
+    if        tag.artist == "empty" { error += 1;
+    } else if tag.title  == "empty" { error += 1;
+    } else if tag.album  == "empty" { error += 1;
+    } else if tag.track  <  1       { error += 1;
+    } else if tag.year   <  1900    { error += 1;
     }
 
     error
@@ -441,13 +516,13 @@ fn get_tag(source: &ID3TagInfo) -> Tag {
 // Inputs
 // path - path to audio file
 // tag  - previously parsed tag data
-// v    - verbose boolean
+// v    - verbose status
 //////////////////////////////////////////////////////////////////////////////////////
-fn write_tags(path: &str, tag: &ID3TagInfo, orig: &ID3TagInfo, v: bool) {
+fn write_tags(path: &str, tag: &ID3TagInfo, orig: &ID3TagInfo, v: &str) {
     let error = is_empty(tag);
 
     if !error {
-        let count = compare(tag, orig);
+        let count = compare_tags(tag, orig);
 
         if count < 5 {
             let new_tag: Tag = get_tag(tag);
@@ -458,14 +533,12 @@ fn write_tags(path: &str, tag: &ID3TagInfo, orig: &ID3TagInfo, v: bool) {
             };
 
             if let Err(_err) = do_steps() {
-                println!("Failed to update ID3 to '{}'", path);
+                if v != "entry" { println!("Failed to update ID3 to '{}'", path); }
             } else {
-                println!("Updated ID3 tags to '{}' as artist:'{}' year::'{}' album::'{}' track:'{}' title:'{}'", path, tag.artist, tag.year, tag.album, tag.track, tag.title);
+                if v != "silent" && v != "entry" { println!("Updated ID3 tags to '{}'\n    -> as artist:'{}' year:'{}' album:'{}' track:'{}' title:'{}'", path, tag.artist, tag.year, tag.album, tag.track, tag.title); }
             }
-        } else if v {
-            println!("No need to update, as the information already matches! '{}'", path);
-        }
-    } else {
+        } else if v == "verbose" || v == "loud" { println!("No need to update, as the information already matches! '{}'", path); }
+    } else if v != "entry" {
         println!("Some input values are incorrect: artist:'{}' title:'{}' album:'{}' track:'{}' year:'{}'. ABORTING!", tag.artist, tag.title, tag.album, tag.track, tag.year);
     }
 }
@@ -480,7 +553,10 @@ fn print_help() {
     println!("print  - print tag information from PATH_TO_FILE");
     println!("update - update file tag infomation based on path and filename");
     println!("remove - remove ID3 tag completely");
-    println!("-v     - verbose functionality, will print out all info\n");
+    println!("-v     - verbose functionality, will print more info");
+    println!("-s     - silent verbose functionality, will print out only errors");
+    println!("-e     - entry verbose functionality, will print only what file is being handled");
+    println!("-l     - loud verbose functionality, will print all info\n");
     println!("OVERWRITE_STRING:");
     println!("Format the string in style of: ARTIST - YEAR - ALBUM / TRACK - SONGNAME");
     println!("Please don't use - or / other than as a splitters.\n");
@@ -508,7 +584,7 @@ fn main() {
         let mut command:    String = format!("empty");
         let mut path:       String = format!("empty");
         let mut overwrite:  String = format!("empty");
-        let mut verbose:    bool   = false;
+        let mut verbose:    String = format!("normal");
         let mut success:    bool   = true;
         let mut count:      u8     = 0;
         let mut artist:     String = format!("empty");
@@ -522,7 +598,10 @@ fn main() {
 
             if arg == "print" || arg == "update" || arg == "remove" {
                 command = format!("{}", arg);
-            } else if arg == "-v" { verbose = true;
+            } else if arg == "-v" { verbose = format!("verbose");
+            } else if arg == "-s" { verbose = format!("silent");
+            } else if arg == "-l" { verbose = format!("loud");
+            } else if arg == "-e" { verbose = format!("entry");
             } else if path == "empty" && fs::metadata(scopy).is_ok() {
                 path = format!("{}", arg);
             } else if arg.contains("/") {
@@ -549,21 +628,23 @@ fn main() {
         if fs::metadata(&path).is_ok() && success {
             let tag_data: ID3TagInfo = ID3TagInfo::read(&path);
 
+            if verbose == "loud" || verbose == "entry" { println!("Handling '{}'", path); }
+
             if command == "print" {
                 print_tag(&tag_data);
             } else if command == "update" {
                 if count > 0 {
                     let write_tag: ID3TagInfo = ID3TagInfo::force(&artist, &year, &album, &track, &title);
-                    write_tags(&path, &write_tag, &tag_data, verbose);
+                    write_tags(&path, &write_tag, &tag_data, &verbose);
                 } else if overwrite != "empty" {
                     let write_tag: ID3TagInfo = ID3TagInfo::parse(&overwrite);
-                    write_tags(&path, &write_tag, &tag_data, verbose);
+                    write_tags(&path, &write_tag, &tag_data, &verbose);
                 } else {
                     let write_tag: ID3TagInfo = ID3TagInfo::parse(&path);
-                    write_tags(&path, &write_tag, &tag_data, verbose);
+                    write_tags(&path, &write_tag, &tag_data, &verbose);
                 }
             } else if command == "remove" {
-                remove_tag(&path, &tag_data, verbose);
+                remove_tag(&path, &tag_data, &verbose);
             } else {
                 println!("Unknown or failed command {}", command);
                 print_help();
