@@ -356,9 +356,9 @@ fn print_tag(info: &ID3TagInfo) {
 // Inputs
 // path - Path to audio file
 //////////////////////////////////////////////////////////////////////////////////////
-fn remove_tag(path: &str, info: &ID3TagInfo) {
+fn remove_tag(path: &str, info: &ID3TagInfo, v: bool) {
     if is_empty(info) {
-        println!("No need to remove, item is already empty! '{}'", path);
+        if !v { println!("No need to remove, item is already empty! '{}'", path); }
     } else {
         let do_steps = || -> Result<(), Box<dyn std::error::Error>> {
             Tag::remove_from_path(path)?;
@@ -366,7 +366,7 @@ fn remove_tag(path: &str, info: &ID3TagInfo) {
         };
 
         if let Err(_err) = do_steps() {
-            println!("No tags found in '{}'", path);
+            if !v {println!("No tags found in '{}'", path); }
         } else {
             println!("Removed tags from '{}'", path);
         }
@@ -441,8 +441,9 @@ fn get_tag(source: &ID3TagInfo) -> Tag {
 // Inputs
 // path - path to audio file
 // tag  - previously parsed tag data
+// v    - verbose boolean
 //////////////////////////////////////////////////////////////////////////////////////
-fn write_tags(path: &str, tag: &ID3TagInfo, orig: &ID3TagInfo) {
+fn write_tags(path: &str, tag: &ID3TagInfo, orig: &ID3TagInfo, v: bool) {
     let error = is_empty(tag);
 
     if !error {
@@ -461,7 +462,7 @@ fn write_tags(path: &str, tag: &ID3TagInfo, orig: &ID3TagInfo) {
             } else {
                 println!("Updated ID3 tags to '{}' as artist:'{}' year::'{}' album::'{}' track:'{}' title:'{}'", path, tag.artist, tag.year, tag.album, tag.track, tag.title);
             }
-        } else {
+        } else if v {
             println!("No need to update, as the information already matches! '{}'", path);
         }
     } else {
@@ -478,7 +479,8 @@ fn print_help() {
     println!("COMMANDS:");
     println!("print  - print tag information from PATH_TO_FILE");
     println!("update - update file tag infomation based on path and filename");
-    println!("remove - remove ID3 tag completely\n");
+    println!("remove - remove ID3 tag completely");
+    println!("-v     - verbose functionality, will print out all info\n");
     println!("OVERWRITE_STRING:");
     println!("Format the string in style of: ARTIST - YEAR - ALBUM / TRACK - SONGNAME");
     println!("Please don't use - or / other than as a splitters.\n");
@@ -496,44 +498,78 @@ fn print_help() {
 // Main functions
 //
 // Input
-// args[1] - Command to be executed
-// args[2] - Path to audio file
-// args[3] - Possible overwrite info for TAG instead of the path and filename
-//           Or artists name for update
-// args[4] - release year for update
-// args[5] - album name for update
-// args[6] - track number for update
-// args[7] - track name for update
+// args - Inputs from the commandline
 //////////////////////////////////////////////////////////////////////////////////////
 fn main() {
 
-    let args: Vec<_> = env::args().collect();
+    let mut args = env::args().skip(1);
 
     if args.len() > 1 {
+        let mut command:    String = format!("empty");
+        let mut path:       String = format!("empty");
+        let mut overwrite:  String = format!("empty");
+        let mut verbose:    bool   = false;
+        let mut success:    bool   = true;
+        let mut count:      u8     = 0;
+        let mut artist:     String = format!("empty");
+        let mut year:       String = format!("0");
+        let mut album:      String = format!("empty");
+        let mut track:      String = format!("0");
+        let mut title:      String = format!("empty");
 
-        if fs::metadata(&args[2]).is_ok() {
-            let tag_data: ID3TagInfo = ID3TagInfo::read(&args[2]);
+        while let Some(arg) = args.next() {
+            let scopy = format!("{}", arg);
 
-            if args[1] == "print" {
-                print_tag(&tag_data);
-            } else if args[1] == "update" {
-                if args.len() > 7 {
-                    let write_tag: ID3TagInfo = ID3TagInfo::force(&args[3], &args[4], &args[5], &args[6], &args[7]);
-                    write_tags(&args[2], &write_tag, &tag_data);
-                } else if args.len() > 3 {
-                    let write_tag: ID3TagInfo = ID3TagInfo::parse(&args[3]);
-                    write_tags(&args[2], &write_tag, &tag_data);
-                } else {
-                    let write_tag: ID3TagInfo = ID3TagInfo::parse(&args[2]);
-                    write_tags(&args[2], &write_tag, &tag_data);
-                }
-            } else if args[1] == "remove" {
-                remove_tag(&args[2], &tag_data);
+            if arg == "print" || arg == "update" || arg == "remove" {
+                command = format!("{}", arg);
+            } else if arg == "-v" { verbose = true;
+            } else if path == "empty" && fs::metadata(scopy).is_ok() {
+                path = format!("{}", arg);
+            } else if arg.contains("/") {
+                overwrite = format!("{}", arg);
             } else {
-                println!("Unknown command {}", args[1]);
+                if count == 0 {
+                    artist = format!("{}", arg);
+                } else if count == 1 {
+                    year = format!("{}", arg);
+                } else if count == 2 {
+                    album = format!("{}", arg);
+                } else if count == 3 {
+                    track = format!("{}", arg);
+                } else if count == 4 {
+                    title = format!("{}", arg);
+                } else {
+                    println!("Too many inputs! Aborting!");
+                    success = false;
+                }
+                count += 1;
+            }
+        }
+
+        if fs::metadata(&path).is_ok() && success {
+            let tag_data: ID3TagInfo = ID3TagInfo::read(&path);
+
+            if command == "print" {
+                print_tag(&tag_data);
+            } else if command == "update" {
+                if count > 0 {
+                    let write_tag: ID3TagInfo = ID3TagInfo::force(&artist, &year, &album, &track, &title);
+                    write_tags(&path, &write_tag, &tag_data, verbose);
+                } else if overwrite != "empty" {
+                    let write_tag: ID3TagInfo = ID3TagInfo::parse(&overwrite);
+                    write_tags(&path, &write_tag, &tag_data, verbose);
+                } else {
+                    let write_tag: ID3TagInfo = ID3TagInfo::parse(&path);
+                    write_tags(&path, &write_tag, &tag_data, verbose);
+                }
+            } else if command == "remove" {
+                remove_tag(&path, &tag_data, verbose);
+            } else {
+                println!("Unknown or failed command {}", command);
+                print_help();
             }
         } else {
-            println!("File doesn't exists: '{}'", args[2]);
+            if success { println!("File doesn't exists: '{}'", path); }
             print_help();
         }
 
