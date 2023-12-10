@@ -53,7 +53,9 @@ impl AlbumInfo {
         let minuses = get_char_count(filename.as_bytes(), b'-');
 
         if filename.len() > 10 || minuses > 0 {
-            let pos2 = find_verified_number(&filename, 1800, current_date.year() as usize, 4);
+            let first_minus = find_first_char(filename.as_bytes(), b'-');
+            let mut pos2 = find_verified_number(&filename, 1800, current_date.year() as usize, 4, first_minus);
+            if pos2 < 0 && first_minus > 0 { pos2 = find_verified_number(&filename, 1800, current_date.year() as usize, 4, 0); }
             let pos = pos2 as usize;
 
             if pos2 >= 0 {                                                  // If the year was in the info, then get it as a middle point. Otherwise try to split with -
@@ -170,11 +172,12 @@ fn get_string_between(input: &str, first: usize, last: usize) -> String {
 // min      - Minimum accepted value
 // max      - Maximum accepted value
 // len      - Wanted length of the value
+// spos     - Starting point of seek
 //
 // Return position to the found value, or -1 if not found
 //////////////////////////////////////////////////////////////////////////////////////
-fn find_verified_number(input: &str, min: usize, max: usize, len: usize) -> i32 {
-    let mut start: usize = 0;
+fn find_verified_number(input: &str, min: usize, max: usize, len: usize, spos: usize) -> i32 {
+    let mut start: usize = spos;
     let mut _run: bool = true;
     let mut ret: i32 = -1;
 
