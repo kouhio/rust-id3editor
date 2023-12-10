@@ -120,6 +120,7 @@ impl TrackInfo {
         // Filename probably as a number in it
         if filename.len() > 5 {
             let pos2 = find_number(filename.as_bytes(), 0, 2);
+            if pos2 < 0 { find_number(filename.as_bytes(), 0, 1); }
             pos = pos2 as usize;
 
             if pos2 >= 0 {                                          // Separate number and track
@@ -183,7 +184,7 @@ fn find_verified_number(input: &str, min: usize, max: usize, len: usize) -> i32 
         let pos2 = pos as usize;
 
         let test = get_string_between(input, pos2, pos2 + len);
-        let found = verify_number(&test, min as i32, max  as i32);
+        let found = verify_number(&test, min as i32, max as i32);
 
         if found != "0" { ret = pos; _run = false; break; }
         else { start = pos as usize + len; }
