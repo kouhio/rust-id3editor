@@ -53,7 +53,7 @@ impl AlbumInfo {
         let minuses = get_char_count(filename.as_bytes(), b'-');
 
         if filename.len() > 10 || minuses > 0 {
-            let pos2 = find_number(filename.as_bytes(), 0, 4);
+            let pos2 = find_verified_number(&filename, 1800, current_date.year() as usize, 4);
             let pos = pos2 as usize;
 
             if pos2 >= 0 {                                                  // If the year was in the info, then get it as a middle point. Otherwise try to split with -
@@ -84,6 +84,8 @@ impl AlbumInfo {
         _artist = remove_whitespace(&_artist);
         _album  = remove_whitespace(&_album);
         _year   = verify_number(&_year, 1900, current_date.year());
+
+        if _artist == "." && _album == "empty" { _artist = format!("empty"); }
 
         AlbumInfo { artist: _artist, year: _year.parse().unwrap(), album: _album }
     }
@@ -142,6 +144,55 @@ impl TrackInfo {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
+// Get string from within the given limits
+//
+// Inputs
+// input    - input string
+// first    - first char position
+// last     - last char position
+//
+// Return: String between the given bounds
+//////////////////////////////////////////////////////////////////////////////////////
+fn get_string_between(input: &str, first: usize, last: usize) -> String {
+    let mut gutted: String = format!("{}", input);
+
+    gutted.replace_range(last..input.len(), "");
+    gutted.replace_range(0..first, "");
+    gutted
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+// Find a number in string with given limits
+//
+// Inputs
+// str      - Input string
+// min      - Minimum accepted value
+// max      - Maximum accepted value
+// len      - Wanted length of the value
+//
+// Return position to the found value, or -1 if not found
+//////////////////////////////////////////////////////////////////////////////////////
+fn find_verified_number(input: &str, min: usize, max: usize, len: usize) -> i32 {
+    let mut start: usize = 0;
+    let mut _run: bool = true;
+    let mut ret: i32 = -1;
+
+    while _run == true {
+        let pos = find_number(input.as_bytes(), start, len);
+        if pos < 0 { _run = false; break; }
+        let pos2 = pos as usize;
+
+        let test = get_string_between(input, pos2, pos2 + len);
+        let found = verify_number(&test, min as i32, max  as i32);
+
+        if found != "0" { ret = pos; _run = false; break; }
+        else { start = pos as usize + len; }
+    }
+
+    ret
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
 // Find a number in a string
 //
 // Inputs
@@ -153,7 +204,7 @@ impl TrackInfo {
 //////////////////////////////////////////////////////////////////////////////////////
 fn find_number(input: &[u8], start_pos: usize, size: usize) -> i32 {
     let mut count: usize = 0;
-    let mut start: usize = 0;
+    let mut start: usize = start_pos;
     let mut found: bool = false;
     let mut total: usize = 0;
 
@@ -326,9 +377,12 @@ fn remove_whitespace(input: &str) -> String {
     }
 
     let mut j = comparison.len() - 1;
-    while j > 0 {
+    let mut k: i32 = j as i32; 
+
+    while k >= 0 {
         if comparison[j] != b' ' && comparison[j] != b'-' && comparison[j] != b'_' && comparison[j] != b'\n' && comparison[j] != b'\t' && comparison[j] != b'/' { end = j + 1; break; }
         j -= 1;
+        k -= 1;
     }
 
     modified.replace_range(end..modified.len(), "");
@@ -403,8 +457,8 @@ impl ID3TagInfo {
 //////////////////////////////////////////////////////////////////////////////////////
 // Print out read ID3 tag info
 //////////////////////////////////////////////////////////////////////////////////////
-fn print_tag(info: &ID3TagInfo) {
-    print!("\n\n'{}' - {} - '{}' : {} - '{}'\n", info.artist, info.year, info.album, info.track, info.title);
+fn print_tag(info: &ID3TagInfo, path: &str) {
+    print!("\"{}\" '{}' - {} - '{}' : {} - '{}'\n", path, info.artist, info.year, info.album, info.track, info.title);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -463,12 +517,11 @@ fn compare_tags(tag: &ID3TagInfo, orig: &ID3TagInfo) -> u8 {
 fn is_empty(tag: &ID3TagInfo) -> bool {
     let mut error: i16 = 0;
 
-    if        tag.artist == "empty" { error += 1;
-    } else if tag.title  == "empty" { error += 1;
-    } else if tag.album  == "empty" { error += 1;
-    } else if tag.track  <  1       { error += 1;
-    } else if tag.year   <  1900    { error += 1;
-    }
+    if tag.artist == "empty" { error += 1; }
+    if tag.title  == "empty" { error += 1; }
+    if tag.album  == "empty" { error += 1; }
+    if tag.track  <  1       { error += 1; }
+    if tag.year   <  1900    { error += 1; }
 
     if error > 4 { true
     } else { false }
@@ -631,7 +684,7 @@ fn main() {
             if verbose == "loud" || verbose == "entry" { println!("Handling '{}'", path); }
 
             if command == "print" {
-                print_tag(&tag_data);
+                print_tag(&tag_data, &path);
             } else if command == "update" {
                 if count > 0 {
                     let write_tag: ID3TagInfo = ID3TagInfo::force(&artist, &year, &album, &track, &title);
